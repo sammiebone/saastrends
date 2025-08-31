@@ -1,71 +1,45 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import App from './App';
 
-// Mock the global fetch function
-global.fetch = jest.fn();
+// Mock the child components to isolate the App component's logic
+jest.mock('./components/TrendingTopicsDashboard', () => () => <div>Trending Topics Dashboard Mock</div>);
+jest.mock('./components/ContentIdeaGenerator', () => () => <div>Content Idea Generator Mock</div>);
 
-describe('ContentIdeaGenerator', () => {
-  beforeEach(() => {
-    fetch.mockClear();
+describe('App Container', () => {
+  test('renders the Trending Dashboard by default', () => {
+    render(<App />);
+    expect(screen.getByText('Trending Topics Dashboard Mock')).toBeInTheDocument();
+    expect(screen.queryByText('Content Idea Generator Mock')).not.toBeInTheDocument();
   });
 
-  test('renders the heading and form', () => {
+  test('switches to the Content Idea Generator view on button click', () => {
     render(<App />);
-    expect(screen.getByText('Content Idea Generator')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Enter a topic (e.g., 'AI')")).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Get Ideas' })).toBeInTheDocument();
+
+    // Click the button to switch views
+    const generatorButton = screen.getByRole('button', { name: 'Content Idea Generator' });
+    fireEvent.click(generatorButton);
+
+    // Assert the view has changed
+    expect(screen.getByText('Content Idea Generator Mock')).toBeInTheDocument();
+    expect(screen.queryByText('Trending Topics Dashboard Mock')).not.toBeInTheDocument();
   });
 
-  test('fetches and displays ideas on form submission', async () => {
-    const mockIdeas = [
-      { query: 'ai in marketing', value: 150 },
-      { query: 'future of ai', value: 120 },
-    ];
-    fetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockIdeas,
-    });
-
+  test('switches back to the Trending Dashboard view', () => {
     render(<App />);
 
-    // Simulate user input
-    fireEvent.change(screen.getByPlaceholderText("Enter a topic (e.g., 'AI')"), {
-      target: { value: 'AI' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Get Ideas' }));
+    // Switch to generator view first
+    const generatorButton = screen.getByRole('button', { name: 'Content Idea Generator' });
+    fireEvent.click(generatorButton);
+    expect(screen.getByText('Content Idea Generator Mock')).toBeInTheDocument();
 
-    // Check for loading state
-    expect(screen.getByRole('button', { name: 'Searching...' })).toBeInTheDocument();
+    // Switch back to dashboard view
+    const dashboardButton = screen.getByRole('button', { name: 'Trending Dashboard' });
+    fireEvent.click(dashboardButton);
 
-    // Wait for the results to be displayed
-    await waitFor(() => {
-      expect(screen.getByText('ai in marketing')).toBeInTheDocument();
-    });
-    expect(screen.getByText('(Value: 150)')).toBeInTheDocument();
-    expect(screen.getByText('future of ai')).toBeInTheDocument();
-  });
-
-  test('displays an error message if the fetch fails', async () => {
-    fetch.mockRejectedValueOnce(new Error('Network response was not ok'));
-
-    render(<App />);
-
-    fireEvent.change(screen.getByPlaceholderText("Enter a topic (e.g., 'AI')"), {
-      target: { value: 'API Failure' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Get Ideas' }));
-
-    // Wait for the error message to be displayed
-    await waitFor(() => {
-      expect(screen.getByText('Failed to fetch ideas. Please try again later.')).toBeInTheDocument();
-    });
-  });
-
-  test('displays an error message if no topic is entered', () => {
-    render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: 'Get Ideas' }));
-    expect(screen.getByText('Please enter a topic.')).toBeInTheDocument();
+    // Assert the view has switched back
+    expect(screen.getByText('Trending Topics Dashboard Mock')).toBeInTheDocument();
+    expect(screen.queryByText('Content Idea Generator Mock')).not.toBeInTheDocument();
   });
 });
