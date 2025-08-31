@@ -1,0 +1,8 @@
+backend/venv/
+frontend/node_modules/
+
+# Python
+__pycache__/
+
+# Log files
+*.log
