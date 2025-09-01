@@ -82,5 +82,27 @@ class KeywordApiTestCase(BaseTestCase):
         self.assertEqual(data[0]['SaaS'], 100)
         mock_get_interest.assert_called_once_with(keywords=['SaaS'])
 
+    @patch('app.semrush_service.get_organic_positions')
+    @patch('app.get_interest_over_time')
+    def test_get_seo_dashboard_data(self, mock_get_interest, mock_get_ranks):
+        # Mock the service responses
+        mock_get_interest.return_value = [{'date': '2023-01-01', 'AI': 50}]
+        mock_get_ranks.return_value = [5]
+
+        # Add a keyword
+        with app.app_context():
+            kw = TrackedKeyword(keyword='AI')
+            db.session.add(kw)
+            db.session.commit()
+            keyword_id = kw.id
+
+        response = self.app.get(f'/api/seo-dashboard/keyword/{keyword_id}')
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data)
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['date'], '2023-01-01')
+        self.assertEqual(data[0]['interest'], 50)
+        self.assertEqual(data[0]['rank'], 5)
+
 if __name__ == '__main__':
     unittest.main()

@@ -2,7 +2,9 @@ import os
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from sqlalchemy import Date
 from trends_service import get_rising_queries, get_trending_searches, get_interest_over_time
+import semrush_service
 
 # App setup
 app = Flask(__name__)
@@ -20,6 +22,7 @@ migrate = Migrate(app, db)
 class TrackedKeyword(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     keyword = db.Column(db.String(100), nullable=False, unique=True)
+    ranks = db.relationship('KeywordRank', backref='keyword', lazy=True, cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -29,6 +32,16 @@ class TrackedKeyword(db.Model):
 
     def __repr__(self):
         return f'<TrackedKeyword {self.keyword}>'
+
+class KeywordRank(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False)
+    rank = db.Column(db.Integer, nullable=False)
+    domain = db.Column(db.String(255), nullable=False)
+    tracked_keyword_id = db.Column(db.Integer, db.ForeignKey('tracked_keyword.id'), nullable=False)
+
+    def __repr__(self):
+        return f'<KeywordRank {self.keyword.keyword} - {self.date} - Rank: {self.rank}>'
 
 # --- API Routes ---
 
@@ -108,6 +121,36 @@ def get_keyword_interest(id):
     # The service supports multiple, so this could be expanded later.
     interest_data = get_interest_over_time(keywords=[keyword.keyword])
     return jsonify(interest_data)
+
+
+@app.route('/api/seo-dashboard/keyword/<int:id>', methods=['GET'])
+def get_seo_dashboard_data(id):
+    keyword = TrackedKeyword.query.get(id)
+    if keyword is None:
+        return jsonify({'error': 'Keyword not found'}), 404
+
+    # 1. Get Google Trends data
+    interest_data = get_interest_over_time(keywords=[keyword.keyword])
+
+    # 2. Get SEMrush rank data (mocked)
+    # In a real app, you'd pass a real domain and date range
+    rank_data = semrush_service.get_organic_positions(None, None, keyword.keyword, None, None)
+
+    # 3. Combine the data
+    # This is a simplified merge logic. A real implementation would need to
+    # align dates carefully.
+    combined_data = []
+    if interest_data:
+        for i, trend_point in enumerate(interest_data):
+            # Assuming the rank_data list corresponds to the trend_data list
+            rank = rank_data[i] if i < len(rank_data) else None
+            combined_data.append({
+                'date': trend_point.get('date'),
+                'interest': trend_point.get(keyword.keyword),
+                'rank': rank
+            })
+
+    return jsonify(combined_data)
 
 
 if __name__ == '__main__':

@@ -7,6 +7,7 @@ import App from './App';
 jest.mock('./components/TrendingTopicsDashboard', () => () => <div>Trending Topics Dashboard Mock</div>);
 jest.mock('./components/ContentIdeaGenerator', () => () => <div>Content Idea Generator Mock</div>);
 jest.mock('./components/KeywordTracker', () => () => <div>Keyword Tracker Mock</div>);
+jest.mock('./components/SeoDashboard', () => () => <div>SEO Dashboard Mock</div>);
 
 describe('App Container', () => {
   test('renders the Trending Dashboard by default', () => {
@@ -53,5 +54,14 @@ describe('App Container', () => {
     expect(screen.getByText('Keyword Tracker Mock')).toBeInTheDocument();
     expect(screen.queryByText('Trending Topics Dashboard Mock')).not.toBeInTheDocument();
     expect(screen.queryByText('Content Idea Generator Mock')).not.toBeInTheDocument();
+  });
+
+  test('switches to the SEO Dashboard view on button click', () => {
+    render(<App />);
+
+    const seoButton = screen.getByRole('button', { name: 'SEO Dashboard' });
+    fireEvent.click(seoButton);
+
+    expect(screen.getByText('SEO Dashboard Mock')).toBeInTheDocument();
   });
 });
