@@ -6,6 +6,7 @@ import App from './App';
 // Mock the child components to isolate the App component's logic
 jest.mock('./components/TrendingTopicsDashboard', () => () => <div>Trending Topics Dashboard Mock</div>);
 jest.mock('./components/ContentIdeaGenerator', () => () => <div>Content Idea Generator Mock</div>);
+jest.mock('./components/KeywordTracker', () => () => <div>Keyword Tracker Mock</div>);
 
 describe('App Container', () => {
   test('renders the Trending Dashboard by default', () => {
@@ -40,6 +41,17 @@ describe('App Container', () => {
 
     // Assert the view has switched back
     expect(screen.getByText('Trending Topics Dashboard Mock')).toBeInTheDocument();
+    expect(screen.queryByText('Content Idea Generator Mock')).not.toBeInTheDocument();
+  });
+
+  test('switches to the Keyword Tracker view on button click', () => {
+    render(<App />);
+
+    const trackerButton = screen.getByRole('button', { name: 'Keyword Tracker' });
+    fireEvent.click(trackerButton);
+
+    expect(screen.getByText('Keyword Tracker Mock')).toBeInTheDocument();
+    expect(screen.queryByText('Trending Topics Dashboard Mock')).not.toBeInTheDocument();
     expect(screen.queryByText('Content Idea Generator Mock')).not.toBeInTheDocument();
   });
 });

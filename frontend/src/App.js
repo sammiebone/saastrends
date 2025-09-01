@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import './App.css';
 import TrendingTopicsDashboard from './components/TrendingTopicsDashboard';
 import ContentIdeaGenerator from './components/ContentIdeaGenerator';
+import KeywordTracker from './components/KeywordTracker';
 
 function App() {
   const [activeView, setActiveView] = useState('dashboard'); // 'dashboard' or 'generator'
@@ -17,10 +18,15 @@ function App() {
           <button onClick={() => setActiveView('generator')} disabled={activeView === 'generator'}>
             Content Idea Generator
           </button>
+          <button onClick={() => setActiveView('tracker')} disabled={activeView === 'tracker'}>
+            Keyword Tracker
+          </button>
         </nav>
       </header>
       <main>
-        {activeView === 'dashboard' ? <TrendingTopicsDashboard /> : <ContentIdeaGenerator />}
+        {activeView === 'dashboard' && <TrendingTopicsDashboard />}
+        {activeView === 'generator' && <ContentIdeaGenerator />}
+        {activeView === 'tracker' && <KeywordTracker />}
       </main>
     </div>
   );

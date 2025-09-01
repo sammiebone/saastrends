@@ -40,3 +40,30 @@ def get_rising_queries(keyword, timeframe='today 3-m', geo='', cat=0, gprop=''):
         print(f"An error occurred while fetching rising queries: {e}")
 
     return []
+
+def get_interest_over_time(keywords, timeframe='today 12-m', geo='', cat=0, gprop=''):
+    """
+    Fetches interest over time for a list of keywords.
+    """
+    pytrends = TrendReq(hl='en-US', tz=360)
+    try:
+        pytrends.build_payload(
+            kw_list=keywords,
+            cat=cat,
+            timeframe=timeframe,
+            geo=geo,
+            gprop=gprop
+        )
+        interest_df = pytrends.interest_over_time()
+        if isinstance(interest_df, pd.DataFrame) and not interest_df.empty:
+            # Reset index to make 'date' a column
+            interest_df = interest_df.reset_index()
+            # Convert date to string to be JSON serializable
+            interest_df['date'] = interest_df['date'].astype(str)
+            # Drop the 'isPartial' column if it exists
+            if 'isPartial' in interest_df.columns:
+                interest_df = interest_df.drop(columns=['isPartial'])
+            return interest_df.to_dict('records')
+    except Exception as e:
+        print(f"An error occurred while fetching interest over time: {e}")
+    return []
