@@ -4,6 +4,7 @@ import TrendingTopicsDashboard from './components/TrendingTopicsDashboard';
 import ContentIdeaGenerator from './components/ContentIdeaGenerator';
 import KeywordTracker from './components/KeywordTracker';
 import SeoDashboard from './components/SeoDashboard';
+import Scheduler from './components/Scheduler';
 
 function App() {
   const [activeView, setActiveView] = useState('dashboard'); // 'dashboard' or 'generator'
@@ -25,6 +26,9 @@ function App() {
           <button onClick={() => setActiveView('seoDashboard')} disabled={activeView === 'seoDashboard'}>
             SEO Dashboard
           </button>
+          <button onClick={() => setActiveView('scheduler')} disabled={activeView === 'scheduler'}>
+            Content Scheduler
+          </button>
         </nav>
       </header>
       <main>
@@ -32,6 +36,7 @@ function App() {
         {activeView === 'generator' && <ContentIdeaGenerator />}
         {activeView === 'tracker' && <KeywordTracker />}
         {activeView === 'seoDashboard' && <SeoDashboard />}
+        {activeView === 'scheduler' && <Scheduler />}
       </main>
     </div>
   );

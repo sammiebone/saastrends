@@ -2,9 +2,12 @@ import os
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from sqlalchemy import Date
-from trends_service import get_rising_queries, get_trending_searches, get_interest_over_time
+from sqlalchemy import Date, Text, DateTime
+from dateutil import parser
+from trends_service import get_rising_queries, get_trending_searches, get_interest_over_time, get_historical_interest
 import semrush_service
+import recommendation_service
+import wordpress_service
 
 # App setup
 app = Flask(__name__)
@@ -43,6 +46,39 @@ class KeywordRank(db.Model):
     def __repr__(self):
         return f'<KeywordRank {self.keyword.keyword} - {self.date} - Rank: {self.rank}>'
 
+class BlogPost(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    topic = db.Column(db.String(100), nullable=False)
+    content = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='draft') # e.g., draft, scheduled, published
+    scheduled_time = db.Column(db.DateTime, nullable=True)
+    platform_integration_id = db.Column(db.Integer, db.ForeignKey('platform_integration.id'), nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'topic': self.topic,
+            'content': self.content,
+            'status': self.status,
+            'scheduled_time': self.scheduled_time.isoformat() if self.scheduled_time else None,
+            'platform_integration_id': self.platform_integration_id
+        }
+
+    def __repr__(self):
+        return f'<BlogPost {self.title}>'
+
+class PlatformIntegration(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    platform_name = db.Column(db.String(50), nullable=False) # 'wordpress', 'medium', etc.
+    site_url = db.Column(db.String(255), nullable=False)
+    api_key = db.Column(db.String(255), nullable=False) # For Application Passwords in WordPress
+    posts = db.relationship('BlogPost', backref='platform', lazy=True)
+
+    def __repr__(self):
+        return f'<PlatformIntegration {self.platform_name} - {self.site_url}>'
+
 # --- API Routes ---
 
 @app.route('/')
@@ -74,8 +110,6 @@ def trending_topics():
     pn = request.args.get('pn', 'united_states')
     topics = get_trending_searches(pn=pn)
     return jsonify(topics)
-
-# --- New Keyword Management API Routes ---
 
 @app.route('/api/keywords', methods=['GET'])
 def get_keywords():
@@ -117,11 +151,8 @@ def get_keyword_interest(id):
     if keyword is None:
         return jsonify({'error': 'Keyword not found'}), 404
 
-    # For now, we only fetch data for the single keyword.
-    # The service supports multiple, so this could be expanded later.
     interest_data = get_interest_over_time(keywords=[keyword.keyword])
     return jsonify(interest_data)
-
 
 @app.route('/api/seo-dashboard/keyword/<int:id>', methods=['GET'])
 def get_seo_dashboard_data(id):
@@ -129,28 +160,107 @@ def get_seo_dashboard_data(id):
     if keyword is None:
         return jsonify({'error': 'Keyword not found'}), 404
 
-    # 1. Get Google Trends data
     interest_data = get_interest_over_time(keywords=[keyword.keyword])
-
-    # 2. Get SEMrush rank data (mocked)
-    # In a real app, you'd pass a real domain and date range
     rank_data = semrush_service.get_organic_positions(None, None, keyword.keyword, None, None)
-
-    # 3. Combine the data
-    # This is a simplified merge logic. A real implementation would need to
-    # align dates carefully.
     combined_data = []
     if interest_data:
         for i, trend_point in enumerate(interest_data):
-            # Assuming the rank_data list corresponds to the trend_data list
             rank = rank_data[i] if i < len(rank_data) else None
             combined_data.append({
                 'date': trend_point.get('date'),
                 'interest': trend_point.get(keyword.keyword),
                 'rank': rank
             })
-
     return jsonify(combined_data)
+
+# --- New Blog Post Scheduler API Routes ---
+
+@app.route('/api/posts', methods=['GET'])
+def get_posts():
+    posts = BlogPost.query.order_by(BlogPost.scheduled_time.desc()).all()
+    return jsonify([p.to_dict() for p in posts])
+
+@app.route('/api/posts', methods=['POST'])
+def create_post():
+    data = request.get_json()
+    if not data or not data.get('title') or not data.get('topic'):
+        return jsonify({'error': 'Title and topic are required'}), 400
+
+    post = BlogPost(
+        title=data['title'],
+        topic=data['topic'],
+        content=data.get('content', '')
+    )
+    db.session.add(post)
+    db.session.commit()
+    return jsonify(post.to_dict()), 201
+
+@app.route('/api/posts/<int:id>', methods=['PUT'])
+def update_post(id):
+    post = BlogPost.query.get(id)
+    if not post:
+        return jsonify({'error': 'Post not found'}), 404
+
+    data = request.get_json()
+    new_status = data.get('status')
+
+    # If status is being changed to 'scheduled', call the WordPress service
+    if new_status == 'scheduled' and post.status != 'scheduled':
+        if not data.get('scheduled_time'):
+            return jsonify({'error': 'A scheduled_time is required to schedule a post.'}), 400
+
+        # In a real app, you would fetch the integration details
+        # For now, we assume a placeholder integration exists or we mock it.
+        # This part of the logic will not run until a PlatformIntegration is created.
+        integration = post.platform
+        if integration and integration.platform_name == 'wordpress':
+            wp_response = wordpress_service.schedule_post_on_wordpress(
+                site_id=integration.site_url, # site_url might be the ID or domain
+                token=integration.api_key,
+                title=data.get('title', post.title),
+                content=data.get('content', post.content),
+                scheduled_date=parser.parse(data['scheduled_time'])
+            )
+            if not wp_response or wp_response.get('status') != 'success':
+                return jsonify({'error': 'Failed to schedule post on WordPress.'}), 500
+
+    post.title = data.get('title', post.title)
+    post.topic = data.get('topic', post.topic)
+    post.content = data.get('content', post.content)
+    post.status = new_status if new_status else post.status
+
+    if data.get('scheduled_time'):
+        post.scheduled_time = parser.parse(data['scheduled_time'])
+
+    db.session.commit()
+    return jsonify(post.to_dict())
+
+@app.route('/api/posts/<int:id>', methods=['DELETE'])
+def delete_post(id):
+    post = BlogPost.query.get(id)
+    if not post:
+        return jsonify({'error': 'Post not found'}), 404
+
+    db.session.delete(post)
+    db.session.commit()
+    return jsonify({'message': 'Post deleted successfully'})
+
+@app.route('/api/recommendations', methods=['GET'])
+def get_recommendations():
+    topic = request.args.get('topic')
+    if not topic:
+        return jsonify({'error': 'A topic query parameter is required.'}), 400
+
+    historical_data = get_historical_interest(keywords=[topic], years=1)
+    if not historical_data:
+        return jsonify({'error': 'Could not retrieve trend data for this topic.'}), 404
+
+    recommendation = recommendation_service.recommend_publishing_time(historical_data, topic)
+
+    if not recommendation:
+        return jsonify({'error': 'Could not generate a recommendation for this topic.'}), 404
+
+    return jsonify(recommendation)
 
 
 if __name__ == '__main__':

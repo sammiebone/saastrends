@@ -1,5 +1,6 @@
 from pytrends.request import TrendReq
 import pandas as pd
+from datetime import datetime, timedelta
 
 def get_trending_searches(pn='united_states'):
     """
@@ -66,4 +67,38 @@ def get_interest_over_time(keywords, timeframe='today 12-m', geo='', cat=0, gpro
             return interest_df.to_dict('records')
     except Exception as e:
         print(f"An error occurred while fetching interest over time: {e}")
+    return []
+
+def get_historical_interest(keywords, years=1):
+    """
+    Fetches historical hourly interest for a list of keywords for the past N years.
+    """
+    pytrends = TrendReq(hl='en-US', tz=360)
+    try:
+        # Set the end date to today and start date to N years ago
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365 * years)
+
+        # pytrends.get_historical_interest can be flaky for long date ranges,
+        # but we'll try it for the specified period.
+        hist_df = pytrends.get_historical_interest(
+            keywords=keywords,
+            year_start=start_date.year,
+            month_start=start_date.month,
+            day_start=start_date.day,
+            year_end=end_date.year,
+            month_end=end_date.month,
+            day_end=end_date.day,
+            sleep=1 # Be respectful of Google's rate limits
+        )
+
+        if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
+            hist_df = hist_df.reset_index()
+            hist_df['date'] = hist_df['date'].astype(str)
+            if 'isPartial' in hist_df.columns:
+                hist_df = hist_df.drop(columns=['isPartial'])
+            return hist_df.to_dict('records')
+
+    except Exception as e:
+        print(f"An error occurred while fetching historical interest: {e}")
     return []
