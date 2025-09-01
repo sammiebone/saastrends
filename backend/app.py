@@ -8,6 +8,8 @@ from trends_service import get_rising_queries, get_trending_searches, get_intere
 import semrush_service
 import recommendation_service
 import wordpress_service
+import forecasting_service
+import shopify_service
 
 # App setup
 app = Flask(__name__)
@@ -78,6 +80,21 @@ class PlatformIntegration(db.Model):
 
     def __repr__(self):
         return f'<PlatformIntegration {self.platform_name} - {self.site_url}>'
+
+class Product(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    category = db.Column(db.String(100), nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'category': self.category
+        }
+
+    def __repr__(self):
+        return f'<Product {self.name}>'
 
 # --- API Routes ---
 
@@ -173,8 +190,6 @@ def get_seo_dashboard_data(id):
             })
     return jsonify(combined_data)
 
-# --- New Blog Post Scheduler API Routes ---
-
 @app.route('/api/posts', methods=['GET'])
 def get_posts():
     posts = BlogPost.query.order_by(BlogPost.scheduled_time.desc()).all()
@@ -204,18 +219,14 @@ def update_post(id):
     data = request.get_json()
     new_status = data.get('status')
 
-    # If status is being changed to 'scheduled', call the WordPress service
     if new_status == 'scheduled' and post.status != 'scheduled':
         if not data.get('scheduled_time'):
             return jsonify({'error': 'A scheduled_time is required to schedule a post.'}), 400
 
-        # In a real app, you would fetch the integration details
-        # For now, we assume a placeholder integration exists or we mock it.
-        # This part of the logic will not run until a PlatformIntegration is created.
         integration = post.platform
         if integration and integration.platform_name == 'wordpress':
             wp_response = wordpress_service.schedule_post_on_wordpress(
-                site_id=integration.site_url, # site_url might be the ID or domain
+                site_id=integration.site_url,
                 token=integration.api_key,
                 title=data.get('title', post.title),
                 content=data.get('content', post.content),
@@ -261,6 +272,86 @@ def get_recommendations():
         return jsonify({'error': 'Could not generate a recommendation for this topic.'}), 404
 
     return jsonify(recommendation)
+
+# --- New Product Forecaster API Routes ---
+
+@app.route('/api/products', methods=['GET'])
+def get_products():
+    products = Product.query.all()
+    return jsonify([p.to_dict() for p in products])
+
+@app.route('/api/products', methods=['POST'])
+def add_product():
+    data = request.get_json()
+    if not data or not data.get('name'):
+        return jsonify({'error': 'Product name is required'}), 400
+
+    product = Product(
+        name=data['name'],
+        category=data.get('category')
+    )
+    db.session.add(product)
+    db.session.commit()
+    return jsonify(product.to_dict()), 201
+
+@app.route('/api/products/<int:id>', methods=['DELETE'])
+def delete_product(id):
+    product = Product.query.get(id)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
+
+    db.session.delete(product)
+    db.session.commit()
+    return jsonify({'message': 'Product deleted successfully'})
+
+@app.route('/api/products/<int:id>/forecast', methods=['GET'])
+def get_product_forecast(id):
+    product = Product.query.get(id)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
+
+    historical_data = get_interest_over_time(keywords=[product.name])
+    if not historical_data:
+        return jsonify({'error': 'Could not retrieve trend data for this product.'}), 404
+
+    forecast_data = forecasting_service.generate_forecast(historical_data, product.name)
+
+    return jsonify({
+        'historical': historical_data,
+        'forecast': forecast_data
+    })
+
+@app.route('/api/products/import-from-shopify', methods=['POST'])
+def import_from_shopify():
+    # In a real app, we'd get credentials from the DB for the current user
+    # For now, we call the mocked service directly.
+    shopify_data = shopify_service.get_shopify_products(store_name=None, access_token=None)
+
+    if not shopify_data or 'products' not in shopify_data:
+        return jsonify({'error': 'Failed to fetch products from Shopify.'}), 500
+
+    imported_count = 0
+    skipped_count = 0
+
+    for shopify_product in shopify_data['products']:
+        existing_product = Product.query.filter_by(name=shopify_product['title']).first()
+        if not existing_product:
+            new_product = Product(
+                name=shopify_product['title'],
+                category=shopify_product.get('product_type')
+            )
+            db.session.add(new_product)
+            imported_count += 1
+        else:
+            skipped_count += 1
+
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Import complete.',
+        'imported': imported_count,
+        'skipped': skipped_count
+    })
 
 
 if __name__ == '__main__':

@@ -9,6 +9,7 @@ jest.mock('./components/ContentIdeaGenerator', () => () => <div>Content Idea Gen
 jest.mock('./components/KeywordTracker', () => () => <div>Keyword Tracker Mock</div>);
 jest.mock('./components/SeoDashboard', () => () => <div>SEO Dashboard Mock</div>);
 jest.mock('./components/Scheduler', () => () => <div>Scheduler Mock</div>);
+jest.mock('./components/ProductForecaster', () => () => <div>Product Forecaster Mock</div>);
 
 describe('App Container', () => {
   test('renders the Trending Dashboard by default', () => {
@@ -73,5 +74,14 @@ describe('App Container', () => {
     fireEvent.click(schedulerButton);
 
     expect(screen.getByText('Scheduler Mock')).toBeInTheDocument();
+  });
+
+  test('switches to the Product Forecaster view on button click', () => {
+    render(<App />);
+
+    const forecasterButton = screen.getByRole('button', { name: 'Product Forecaster' });
+    fireEvent.click(forecasterButton);
+
+    expect(screen.getByText('Product Forecaster Mock')).toBeInTheDocument();
   });
 });
