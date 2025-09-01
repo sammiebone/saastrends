@@ -6,6 +6,7 @@ import KeywordTracker from './components/KeywordTracker';
 import SeoDashboard from './components/SeoDashboard';
 import Scheduler from './components/Scheduler';
 import ProductForecaster from './components/ProductForecaster';
+import InventoryManager from './components/InventoryManager';
 
 function App() {
   const [activeView, setActiveView] = useState('dashboard'); // 'dashboard' or 'generator'
@@ -33,6 +34,9 @@ function App() {
           <button onClick={() => setActiveView('forecaster')} disabled={activeView === 'forecaster'}>
             Product Forecaster
           </button>
+          <button onClick={() => setActiveView('inventory')} disabled={activeView === 'inventory'}>
+            Inventory Manager
+          </button>
         </nav>
       </header>
       <main>
@@ -42,6 +46,7 @@ function App() {
         {activeView === 'seoDashboard' && <SeoDashboard />}
         {activeView === 'scheduler' && <Scheduler />}
         {activeView === 'forecaster' && <ProductForecaster />}
+        {activeView === 'inventory' && <InventoryManager />}
       </main>
     </div>
   );
