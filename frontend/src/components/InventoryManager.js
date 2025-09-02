@@ -13,9 +13,11 @@ const InventoryManager = () => {
         fetch('/api/products')
             .then(res => res.json())
             .then(data => {
-                setProducts(data.products);
-                if (data.products.length > 0) {
-                    setSelectedProduct(data.products[0].id);
+                if (Array.isArray(data)) {
+                    setProducts(data);
+                    if (data.length > 0) {
+                        setSelectedProduct(data[0].id);
+                    }
                 }
             })
             .catch(error => console.error('Error fetching products:', error));

@@ -78,3 +78,16 @@ def get_inventory_level(store_name, access_token, inventory_item_id):
             {'inventory_item_id': inventory_item_id, 'available': 100}
         ]
     }
+
+def update_product_price(store_name, access_token, product_id, new_price):
+    """
+    Updates the price of a product in Shopify.
+    NOTE: This is a placeholder function with mocked data.
+    """
+    print(f"Updating price for product {product_id} to {new_price} (mocked).")
+    # In a real scenario, you'd make a PUT request to the Product API endpoint:
+    # f"https://{store_name}.myshopify.com/admin/api/latest/products/{product_id}.json"
+    # The body of the request would be something like:
+    # { "product": { "id": product_id, "variants": [{ "id": variant_id, "price": new_price }] } }
+    # This is a simplified mock and assumes the first variant is the one to update.
+    return {'status': 'success', 'product_id': product_id, 'new_price': new_price}

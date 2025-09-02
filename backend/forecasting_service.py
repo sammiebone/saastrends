@@ -23,12 +23,21 @@ def generate_forecast(historical_data, sales_data, keyword, steps=12):
     time_series = trends_df[keyword].asfreq('W-MON').ffill()
 
     # Process sales data
-    sales_df = pd.DataFrame(sales_data)
-    sales_df['date'] = pd.to_datetime(sales_df['created_at'])
-    sales_df = sales_df.set_index('date')
-    # Extract quantity from the nested line_items structure
-    sales_df['quantity'] = sales_df['line_items'].apply(lambda items: items[0]['quantity'] if items else 0)
-    sales_time_series = sales_df['quantity'].resample('W-MON').sum()
+    if sales_data:
+        sales_records = []
+        for order in sales_data:
+            for item in order['line_items']:
+                sales_records.append({'date': order['created_at'], 'quantity': item['quantity']})
+
+        if sales_records:
+            sales_df = pd.DataFrame(sales_records)
+            sales_df['date'] = pd.to_datetime(sales_df['date'])
+            sales_df = sales_df.set_index('date')
+            sales_time_series = sales_df['quantity'].resample('W-MON').sum()
+        else:
+            sales_time_series = pd.Series(dtype='float64')
+    else:
+        sales_time_series = pd.Series(dtype='float64')
 
     # Align the two time series
     combined_df = pd.concat([time_series, sales_time_series], axis=1).ffill().fillna(0)

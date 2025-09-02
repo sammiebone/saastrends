@@ -1,6 +1,5 @@
 import os
 from flask import Flask, jsonify, request
-from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from sqlalchemy import Date, Text, DateTime
 from dateutil import parser
@@ -10,6 +9,8 @@ import recommendation_service
 import wordpress_service
 import forecasting_service
 import shopify_service
+import pricing_engine
+from models import db, TrackedKeyword, KeywordRank, BlogPost, PlatformIntegration, Product, PricingRule
 
 # App setup
 app = Flask(__name__)
@@ -19,82 +20,8 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-db = SQLAlchemy(app)
+db.init_app(app)
 migrate = Migrate(app, db)
-
-# --- Database Models ---
-
-class TrackedKeyword(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    keyword = db.Column(db.String(100), nullable=False, unique=True)
-    ranks = db.relationship('KeywordRank', backref='keyword', lazy=True, cascade="all, delete-orphan")
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'keyword': self.keyword
-        }
-
-    def __repr__(self):
-        return f'<TrackedKeyword {self.keyword}>'
-
-class KeywordRank(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    date = db.Column(db.Date, nullable=False)
-    rank = db.Column(db.Integer, nullable=False)
-    domain = db.Column(db.String(255), nullable=False)
-    tracked_keyword_id = db.Column(db.Integer, db.ForeignKey('tracked_keyword.id'), nullable=False)
-
-    def __repr__(self):
-        return f'<KeywordRank {self.keyword.keyword} - {self.date} - Rank: {self.rank}>'
-
-class BlogPost(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(200), nullable=False)
-    topic = db.Column(db.String(100), nullable=False)
-    content = db.Column(db.Text, nullable=True)
-    status = db.Column(db.String(20), nullable=False, default='draft') # e.g., draft, scheduled, published
-    scheduled_time = db.Column(db.DateTime, nullable=True)
-    platform_integration_id = db.Column(db.Integer, db.ForeignKey('platform_integration.id'), nullable=True)
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'title': self.title,
-            'topic': self.topic,
-            'content': self.content,
-            'status': self.status,
-            'scheduled_time': self.scheduled_time.isoformat() if self.scheduled_time else None,
-            'platform_integration_id': self.platform_integration_id
-        }
-
-    def __repr__(self):
-        return f'<BlogPost {self.title}>'
-
-class PlatformIntegration(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    platform_name = db.Column(db.String(50), nullable=False) # 'wordpress', 'medium', etc.
-    site_url = db.Column(db.String(255), nullable=False)
-    api_key = db.Column(db.String(255), nullable=False) # For Application Passwords in WordPress
-    posts = db.relationship('BlogPost', backref='platform', lazy=True)
-
-    def __repr__(self):
-        return f'<PlatformIntegration {self.platform_name} - {self.site_url}>'
-
-class Product(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False, unique=True)
-    category = db.Column(db.String(100), nullable=True)
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'name': self.name,
-            'category': self.category
-        }
-
-    def __repr__(self):
-        return f'<Product {self.name}>'
 
 # --- API Routes ---
 
@@ -179,15 +106,30 @@ def get_seo_dashboard_data(id):
 
     interest_data = get_interest_over_time(keywords=[keyword.keyword])
     rank_data = semrush_service.get_organic_positions(None, None, keyword.keyword, None, None)
-    combined_data = []
-    if interest_data:
-        for i, trend_point in enumerate(interest_data):
-            rank = rank_data[i] if i < len(rank_data) else None
-            combined_data.append({
-                'date': trend_point.get('date'),
-                'interest': trend_point.get(keyword.keyword),
-                'rank': rank
-            })
+
+    if not interest_data:
+        return jsonify([])
+
+    # Convert to DataFrames for easier merging
+    interest_df = pd.DataFrame(interest_data)
+    interest_df['date'] = pd.to_datetime(interest_df['date'])
+    interest_df = interest_df.set_index('date')
+
+    if not rank_data:
+        # If there's no rank data, just return the interest data
+        return jsonify(interest_data)
+
+    rank_df = pd.DataFrame(rank_data)
+    rank_df['date'] = pd.to_datetime(rank_df['date'])
+    rank_df = rank_df.set_index('date')
+
+    # Merge the two dataframes on the date index
+    combined_df = interest_df.join(rank_df, how='outer').fillna(0)
+    combined_df = combined_df.reset_index()
+
+    # Convert back to list of dictionaries
+    combined_data = combined_df.to_dict('records')
+
     return jsonify(combined_data)
 
 @app.route('/api/posts', methods=['GET'])
@@ -314,7 +256,10 @@ def get_product_forecast(id):
     if not historical_data:
         return jsonify({'error': 'Could not retrieve trend data for this product.'}), 404
 
-    forecast_data = forecasting_service.generate_forecast(historical_data, product.name)
+    sales_data = shopify_service.get_sales_history(None, None, product.id)
+    sales_orders = sales_data['orders'] if sales_data and 'orders' in sales_data else []
+
+    forecast_data = forecasting_service.generate_forecast(historical_data, sales_orders, product.name)
 
     return jsonify({
         'historical': historical_data,
@@ -352,6 +297,72 @@ def import_from_shopify():
         'imported': imported_count,
         'skipped': skipped_count
     })
+
+# --- Dynamic Pricing API Routes ---
+
+@app.route('/api/products/<int:id>/pricing-rule', methods=['GET'])
+def get_product_pricing_rule(id):
+    product = Product.query.get(id)
+    if not product:
+        return jsonify({'error': 'Product not found'}), 404
+
+    if product.pricing_rule:
+        return jsonify(product.pricing_rule.to_dict())
+    else:
+        return jsonify(None)
+
+@app.route('/api/pricing-rules', methods=['POST'])
+def create_pricing_rule():
+    data = request.get_json()
+    if not data or not all(k in data for k in ['product_id', 'trend_threshold', 'price_adjustment_percentage']):
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    existing_rule = PricingRule.query.filter_by(product_id=data['product_id']).first()
+    if existing_rule:
+        return jsonify({'error': 'A pricing rule for this product already exists'}), 409
+
+    rule = PricingRule(
+        product_id=data['product_id'],
+        trend_threshold=data['trend_threshold'],
+        price_adjustment_percentage=data['price_adjustment_percentage'],
+        price_floor=data.get('price_floor'),
+        price_ceiling=data.get('price_ceiling')
+    )
+    db.session.add(rule)
+    db.session.commit()
+    return jsonify(rule.to_dict()), 201
+
+@app.route('/api/pricing-rules/<int:id>', methods=['PUT'])
+def update_pricing_rule(id):
+    rule = PricingRule.query.get(id)
+    if not rule:
+        return jsonify({'error': 'Pricing rule not found'}), 404
+
+    data = request.get_json()
+    rule.trend_threshold = data.get('trend_threshold', rule.trend_threshold)
+    rule.price_adjustment_percentage = data.get('price_adjustment_percentage', rule.price_adjustment_percentage)
+    rule.price_floor = data.get('price_floor', rule.price_floor)
+    rule.price_ceiling = data.get('price_ceiling', rule.price_ceiling)
+
+    db.session.commit()
+    return jsonify(rule.to_dict())
+
+@app.route('/api/pricing-rules/<int:id>', methods=['DELETE'])
+def delete_pricing_rule(id):
+    rule = PricingRule.query.get(id)
+    if not rule:
+        return jsonify({'error': 'Pricing rule not found'}), 404
+
+    db.session.delete(rule)
+    db.session.commit()
+    return jsonify({'message': 'Pricing rule deleted successfully'})
+
+@app.route('/api/products/<int:id>/dynamic-price', methods=['GET'])
+def get_dynamic_price(id):
+    dynamic_price_data = pricing_engine.calculate_dynamic_price(id)
+    if not dynamic_price_data:
+        return jsonify({'error': 'Could not calculate dynamic price. Ensure a pricing rule is set for this product.'}), 404
+    return jsonify(dynamic_price_data)
 
 
 if __name__ == '__main__':

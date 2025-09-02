@@ -10,6 +10,8 @@ jest.mock('./components/KeywordTracker', () => () => <div>Keyword Tracker Mock</
 jest.mock('./components/SeoDashboard', () => () => <div>SEO Dashboard Mock</div>);
 jest.mock('./components/Scheduler', () => () => <div>Scheduler Mock</div>);
 jest.mock('./components/ProductForecaster', () => () => <div>Product Forecaster Mock</div>);
+jest.mock('./components/InventoryManager', () => () => <div>Inventory Manager Mock</div>);
+jest.mock('./components/DynamicPricingDashboard', () => () => <div>Dynamic Pricing Dashboard Mock</div>);
 
 describe('App Container', () => {
   test('renders the Trending Dashboard by default', () => {
@@ -83,5 +85,23 @@ describe('App Container', () => {
     fireEvent.click(forecasterButton);
 
     expect(screen.getByText('Product Forecaster Mock')).toBeInTheDocument();
+  });
+
+  test('switches to the Inventory Manager view on button click', () => {
+    render(<App />);
+
+    const inventoryButton = screen.getByRole('button', { name: 'Inventory Manager' });
+    fireEvent.click(inventoryButton);
+
+    expect(screen.getByText('Inventory Manager Mock')).toBeInTheDocument();
+  });
+
+  test('switches to the Dynamic Pricing view on button click', () => {
+    render(<App />);
+
+    const dynamicPricingButton = screen.getByRole('button', { name: 'Dynamic Pricing' });
+    fireEvent.click(dynamicPricingButton);
+
+    expect(screen.getByText('Dynamic Pricing Dashboard Mock')).toBeInTheDocument();
   });
 });
